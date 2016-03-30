@@ -2,8 +2,12 @@
 package sgr
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math"
+	"regexp"
+	"text/tabwriter"
 )
 
 type SGR string
@@ -241,6 +245,44 @@ var greyOrder256 = [...]int{
 	231,
 }
 
+var re *regexp.Regexp = regexp.MustCompile("[^m]*m")
+var ro *regexp.Regexp = regexp.MustCompile("<([^m]*m)>")
+
 func (c Color24) String() string {
 	return fmt.Sprintf("#%0.2x%0.2x%0.2x", c.R, c.G, c.B)
+}
+
+// implement an iowriter that wraps tabwriter allowing for color-safe
+// operations
+type TabWriter struct {
+	// configuration to pass-through to tabwriter.Writer
+	tw     *tabwriter.Writer
+	bb     *bytes.Buffer
+	output io.Writer
+}
+
+func (b *TabWriter) Init(output io.Writer, minwidth, maxwidth, padding int, padchar byte, flags uint) *TabWriter {
+
+	b.output = output
+	b.bb = new(bytes.Buffer)
+	b.tw = new(tabwriter.Writer)
+	b.tw.Init(b.bb, minwidth, maxwidth, padding, padchar, flags|tabwriter.FilterHTML)
+
+	return b
+}
+
+func (b *TabWriter) Write(p []byte) (n int, err error) {
+	var bc int
+	bc, err = b.tw.Write(re.ReplaceAll(p, []byte("<$0>")))
+	return bc, err
+}
+
+func (b *TabWriter) Flush() (err error) {
+	err = b.tw.Flush()
+	if err != nil {
+		return err
+	}
+	// remove spaceships
+	_, err = b.output.Write(ro.ReplaceAll(b.bb.Bytes(), []byte("$1")))
+	return err
 }
